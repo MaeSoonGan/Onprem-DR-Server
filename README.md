@@ -2,96 +2,94 @@
 
 ## ✍️ 프로젝트 한 줄 소개
 
-- 한국 금융권 이중 IDC 규제를 반영한 모의투자 서비스에서, 거래의 핵심인 계정계(체결엔진·원장시스템)와 DB HA 스택을 운영하는 On-Premise 주센터 서버입니다. MySQL Semi-sync 복제와 자동 페일오버를 기반으로 무중단 거래 처리와 데이터 정합성을 보장합니다.
+* 한국 금융권 이중 IDC 규제를 반영한 모의투자 서비스에서, 주센터 장애 발생 시 계정계(체결엔진·원장시스템)와 DB 서비스를 복구하기 위한 On-Premise DR 센터 서버입니다. Veeam 기반 VM 복제, DR DB 승격, ProxySQL 단일 엔드포인트 전환, Kafka DR 구성을 통해 장애 상황에서도 거래 처리 연속성과 데이터 정합성을 확보합니다.
 
 <br />
 
 ## 🛫 레포지토리 개요
 
-- 이 레포지토리는 MaeSoonGan 프로젝트의 **주센터(Main Center) 서버** 구축 및 운영 문서를 관리합니다.
+* 이 레포지토리는 MaeSoonGan 프로젝트의 **DR 센터(DR Center) 서버** 구축 및 운영 문서를 관리합니다.
 
-- 주센터는 모의투자 서비스의 계정계(체결엔진·원장시스템)를 전담하는 On-Premise 영역입니다. 금융권 계정계는 데이터 정합성과 무중단성이 가장 중요하므로 클라우드가 아닌 온프레미스 전용으로 배치했고, 채널계(실시간 시세·사용자 트래픽)는 AWS EKS에 분리했습니다. Core Cluster는 계정계 서버·체결 엔진·Kafka를, DB Cluster는 Master/Slave 데이터베이스를, CI/CD Cluster는 빌드·배포 파이프라인을 담당합니다.
+* DR 센터는 주센터(Main Center) 장애 상황에 대비하여 계정계(체결엔진·원장시스템)를 복구하기 위한 On-Premise 대기 환경입니다. 금융권 계정계는 데이터 정합성과 서비스 연속성이 중요하기 때문에, 주센터에 장애가 발생하더라도 거래 핵심 기능을 복구할 수 있도록 별도의 DR 서버를 구성했습니다.
 
-- DB 영역은 MySQL Semi-sync 복제를 기반으로 Orchestrator 자동 페일오버와 ProxySQL 읽기/쓰기 라우팅을 구성하여 주센터 내부 장애 시 RPO ≈ 0을 목표로 합니다. 체결 엔진은 KIS API 시세를 연동하고, Kafka 기반 주문 이벤트를 멱등성 설계로 처리합니다. CI/CD 영역은 GitLab을 기반으로 정적분석·아티팩트·이미지 관리·배포를 일괄 수행합니다.
+* 주센터의 계정계 서버와 체결 엔진 VM은 Veeam Replication을 통해 DR 서버로 복제되며, 장애 발생 시 DR 서버에서 Replica VM을 실행하여 원장 시스템과 체결 엔진을 복구할 수 있습니다. 또한 DR DB는 Main DB Cluster의 장애 조치 대상에 포함되어 있으며, Orchestrator가 Master 장애를 감지하면 DR DB를 새로운 Master로 승격할 수 있도록 구성했습니다.
+
+* 애플리케이션은 DB에 직접 접속하지 않고 ProxySQL의 단일 엔드포인트를 통해 접속합니다. 따라서 Master DB가 Main 서버에서 DR 서버로 변경되더라도, 애플리케이션은 동일한 DB 접속 경로를 유지하고 ProxySQL이 내부적으로 새로운 Master로 라우팅합니다. Kafka 역시 DR 환경에 별도로 구성하여, Main 장애 이후에도 주문·체결 이벤트 흐름을 이어갈 수 있도록 했습니다.
 
 <br />
 
 ## 🖥️ 서버 사양
 
-| 구분         | 내용              |
-| ---------- | --------------- |
+| 구분         | 내용                |
+| ---------- | ----------------- |
 | Hypervisor | VMware ESXi 7.0U3 |
-| OS         | ESXi            |
-| vCPU       | 16              |
-| RAM        | 64GB            |
-| Disk       | 1TB           |
+| OS         | ESXi              |
+| vCPU       | 16                |
+| RAM        | 64GB              |
+| Disk       | 1TB               |
 
 <br />
 
 ## 🧩 구성 요소
 
-| 구성 요소           | 역할                                            |
-| --------------- | --------------------------------------------- |
-| VyOS Router     | 주센터 서버 내 VLAN 간 내부 라우팅 (라우팅 분산)               |
-| 계정계 서버 (원장시스템)  | 단일 진실 소스(Single Source of Truth) 원장 DB 운영     |
-| 체결 엔진           | 주문 체결 처리, KIS API 시세 연동, 멱등성 기반 주문 상태 관리      |
-| Kafka           | 주문 이벤트 스트리밍 (at-least-once, 멱등 컨슈머 대응)        |
-| MySQL Master    | Semi-sync 복제의 Primary 노드 (읽기/쓰기)              |
-| MySQL Slave     | Semi-sync Replica 노드 (읽기 부하 분산)               |
-| Orchestrator    | MySQL 토폴로지 관리 및 자동 페일오버                        |
-| ProxySQL        | 읽기/쓰기 트래픽 라우팅, Cluster 설정 동기화                  |
-| GitLab          | 소스 관리 및 CI 파이프라인                               |
-| Onprem-runner   | GitLab CI 작업 실행 러너                             |
-| Vault           | 서비스 시크릿(client secret) 중앙 관리                   |
-| Ansible AWX     | 구성 관리 및 배포 자동화                                 |
-| SonarQube       | 정적 코드 분석 및 품질 게이트                              |
-| Nexus           | 빌드 아티팩트 저장소                                    |
-| Harbor          | 컨테이너 이미지 레지스트리                                 |
+| 구성 요소             | 역할                                                  |
+| ----------------- | --------------------------------------------------- |
+| VyOS Router       | DR 서버 내 VLAN 간 내부 라우팅 및 DR 네트워크 연결                  |
+| Veeam VM          | 주센터 VM 복제 및 DR Failover 관리                          |
+| 계정계 서버 Replica    | 주센터 원장시스템 VM 복제본, 장애 시 DR 환경에서 기동                   |
+| 체결 엔진 Replica     | 주센터 체결 엔진 VM 복제본, 장애 시 주문 체결 처리 복구                  |
+| Kafka             | DR 환경의 주문·체결 이벤트 스트리밍                               |
+| DR MySQL DB       | Main DB 장애 시 Master 승격 대상이 되는 DR 데이터베이스             |
+| Orchestrator      | Main/DR DB 토폴로지 관리 및 장애 시 DR DB 승격                  |
+| ProxySQL          | 단일 DB 엔드포인트 제공, Master 변경 시 접속 경로 전환                |
+| Veeam Replication | 주센터 계정계·체결 엔진 VM을 DR 서버로 복제                         |
+| Failover Script   | DR VM 기동 후 IP, Gateway, DNS, Hostname 등 네트워크 전환 자동화 |
+| Kafka DR          | Main 장애 이후에도 이벤트 기반 주문·체결 흐름 유지                     |
 
 <br />
 
-## 🏗️ 주센터 서버 아키텍처
+## 🏗️ DR 센터 서버 아키텍처
 
-<img width="513" height="379" alt="image" src="https://github.com/user-attachments/assets/af141fe5-fbc2-4eee-a019-baaee1e6ab13" />
-
+<img width="513" height="379" alt="DR Center Architecture" src="DR_아키텍처_이미지_URL_또는_파일경로_입력" />
 
 <br />
 
 ## 📡 주요 구성 영역
 
-### Core Cluster
+### DR VM Cluster
 
-* 계정계 서버 (원장시스템) — 거래 원장 단일 진실 소스
-* 체결 엔진 — 주문 접수·체결 처리, KIS API 시세 연동
-* Kafka — 주문 이벤트 스트리밍
+* Veeam VM — 주센터 VM 복제 및 Failover 관리
+* 계정계 서버 Replica — 원장시스템 복구용 VM
+* 체결 엔진 Replica — 주문 체결 처리 복구용 VM
+* Failover Script — DR VM 기동 후 네트워크 정보 자동 전환
 
-### DB Cluster
+### DR DB Cluster
 
-* MySQL Master / Slave (Semi-sync Replication)
-* Orchestrator — 자동 페일오버
-* ProxySQL — 읽기/쓰기 라우팅
+* DR MySQL DB — Main Master 장애 시 승격 가능한 DB 노드
+* Orchestrator — Master 장애 감지 및 DR DB 승격
+* ProxySQL — 단일 엔드포인트 기반 DB 접속 경로 전환
 
-### CI/CD Cluster
+### Kafka DR
 
-* GitLab + Onprem-runner — CI 파이프라인
-* SonarQube — 정적 분석
-* Nexus / Harbor — 아티팩트 및 이미지 관리
-* Vault / Ansible AWX — 시크릿 관리 및 배포 자동화
+* Kafka — DR 환경의 주문·체결 이벤트 처리
+* 주문 이벤트 스트리밍 — 장애 이후에도 비동기 이벤트 흐름 유지
+* 체결 결과 이벤트 전달 — 복구된 계정계·체결 엔진과 연동
 
 <br />
 
 ## 🔁 데이터 흐름
 
-1. 사용자의 주문 요청이 채널계(AWS EKS)를 거쳐 주센터 체결 엔진으로 전달됩니다.
-2. 체결 엔진은 KIS API로부터 시세를 받아 주문 체결 여부를 판단합니다.
-3. 체결 결과는 주문 이벤트로 Kafka에 발행됩니다.
-4. 원장시스템은 Kafka 이벤트를 멱등성 기반으로 소비하여 원장 DB에 기록합니다.
-5. 원장 DB는 MySQL Master에 쓰기되고, Semi-sync 복제로 Slave에 동기화됩니다.
-6. ProxySQL은 읽기 트래픽을 Slave로, 쓰기 트래픽을 Master로 라우팅합니다.
-7. Orchestrator가 Master 장애를 감지하면 자동 페일오버를 수행합니다.
-8. 애플리케이션 소스는 GitLab에 푸시되어 CI 파이프라인이 실행됩니다.
-9. SonarQube 품질 게이트 통과 후 아티팩트는 Nexus, 이미지는 Harbor에 저장됩니다.
-10. Vault에서 시크릿을 주입받아 빌드·배포가 수행됩니다.
+1. 평상시에는 주센터(Main Center)의 계정계 서버와 체결 엔진이 거래 처리를 담당합니다.
+2. 주센터의 계정계 서버와 체결 엔진 VM은 Veeam Replication을 통해 DR 서버로 복제됩니다.
+3. Main DB의 데이터는 복제 구성을 통해 DR DB까지 동기화되며, DR DB는 장애 조치 대상에 포함됩니다.
+4. 애플리케이션은 DB에 직접 접속하지 않고 ProxySQL의 단일 엔드포인트를 통해 DB에 접근합니다.
+5. Orchestrator는 Main Master DB 상태를 지속적으로 감시합니다.
+6. Main Master DB 장애가 발생하면 Orchestrator가 장애를 감지하고, DR DB를 새로운 Master로 승격합니다.
+7. ProxySQL은 변경된 Master 정보를 반영하여 애플리케이션의 DB 접속 경로를 DR DB로 전환합니다.
+8. 주센터의 계정계 또는 체결 엔진 VM 장애 시 Veeam Failover를 통해 DR 서버의 Replica VM을 기동합니다.
+9. DR VM 기동 후 Failover Script를 통해 IP, Gateway, DNS, Hostname 등 네트워크 설정을 DR 환경에 맞게 변경합니다.
+10. DR Kafka는 주문·체결 이벤트 흐름을 이어받아, 복구된 계정계 서버와 체결 엔진이 이벤트 기반 처리를 계속 수행할 수 있도록 합니다.
+11. 이를 통해 Main 서버 장애 상황에서도 DR 서버를 통해 계정계, 체결 엔진, DB, Kafka 기반 이벤트 처리를 복구할 수 있습니다.
 
 <br />
 

@@ -18,15 +18,31 @@
 
 <br />
 
-## 🖥️ 서버 사양
+## 📋 목차
 
-| 구분         | 내용                |
-| ---------- | ----------------- |
-| Hypervisor | VMware ESXi 7.0U3 |
-| OS         | ESXi              |
-| vCPU       | 16                |
-| RAM        | 64GB              |
-| Disk       | 1TB               |
+### DR 인프라 / 네트워크
+
+* [DR 서버 네트워크 및 라우팅 구성](./dr-network.md)
+
+### Veeam Replication / VM DR
+
+* [Veeam Replication 구성](./veeam-replication.md)
+
+
+### DR DB / Failover
+
+* [Orchestrator·ProxySQL 기반 DB Failover](./db-failover.md)
+
+
+### 장애 복구 시나리오 / 검증
+
+* [DR 전환 테스트 및 체크리스트](./recovery/dr-failover-test.md)
+
+<br />
+
+## 🏗️ DR 센터 서버 아키텍처
+
+<img width="513" height="379" alt="DR Center Architecture" src="DR서버아키텍처.png" />
 
 <br />
 
@@ -48,11 +64,6 @@
 
 <br />
 
-## 🏗️ DR 센터 서버 아키텍처
-
-<img width="513" height="379" alt="DR Center Architecture" src="DR_아키텍처_이미지_URL_또는_파일경로_입력" />
-
-<br />
 
 ## 📡 주요 구성 영역
 
@@ -93,28 +104,14 @@
 
 <br />
 
-## 📋 목차
+## 🖥️ 서버 사양
 
-### 가상화 / 스토리지
+| 구분         | 내용             |
+| ---------- | ----------------- |
+| Hypervisor | VMware ESXi 7.0U3 |
+| OS         | ESXi              |
+| vCPU       | 16                |
+| RAM        | 20GB              |
+| Disk       | 250GB             |
 
-* [vDS(Distributed Switch) 설계](./docs/virtualization/vds-design.md)
-* [TrueNAS iSCSI 스토리지 구성](./docs/storage/truenas-iscsi.md)
-
-### Core Cluster
-
-* [체결 엔진 구성](./docs/core/matching-engine.md)
-* [원장시스템 구성](./docs/core/ledger-system.md)
-* [Kafka 구성](./docs/core/kafka.md)
-
-### DB HA
-
-* [MySQL Semi-sync 복제 구성](./docs/db/mysql-semisync.md)
-* [Orchestrator 자동 페일오버](./docs/db/orchestrator.md)
-* [ProxySQL 라우팅 구성](./docs/db/proxysql.md)
-
-### CI/CD Cluster
-
-* [GitLab CI 파이프라인](./docs/cicd/gitlab.md)
-* [SonarQube 품질 게이트](./docs/cicd/sonarqube.md)
-* [Nexus / Harbor 구성](./docs/cicd/nexus-harbor.md)
-* [Vault / Ansible AWX 구성](./docs/cicd/vault-awx.md)
+<br />
